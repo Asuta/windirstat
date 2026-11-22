@@ -222,20 +222,4 @@ int CFileChangeView::OnCreate(const LPCREATESTRUCT lpCreateStruct)
     return 0;
 }
 
-void CFileChangeView::OnUpdate(CView* pSender, const LPARAM lHint, CObject* pHint)
-{
-    if (lHint == HINT_NEWROOT)
-    {
-        m_control.ClearChanges();
-        return;
-    }
-
-    if (lHint == HINT_NULL)
-    {
-        m_control.SetChanges(CDirStatDoc::Get()->GetSnapshotGrowthResult());
-    }
-
-    CControlView::OnUpdate(pSender, lHint, pHint);
-}
-
 

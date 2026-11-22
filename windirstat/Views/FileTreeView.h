@@ -121,7 +121,6 @@ protected:
 
     CTreeListControl& GetControl() override { return m_control; }
     const CTreeListControl& GetControl() const override { return m_control; }
-    void OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint) override;
 
     CFileChangeControl m_control;
 

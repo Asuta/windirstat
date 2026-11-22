@@ -117,7 +117,7 @@ protected:
 
     void UnlinkRoot();
     bool UserDefinedCleanupWorksForItem(USERDEFINEDCLEANUP* udc, const CItem* item) const;
-    void StartScanningEngine(std::vector<CItem*> items);
+    void StartScanningEngine(std::vector<CItem*> items, bool deletionRefresh = false);
     enum StopReason : uint8_t { Default, Stop, Abort };
     void StopScanningEngine(StopReason stopReason = Stop);
     void RefreshItem(const std::vector<CItem*>& item) const;
@@ -147,7 +147,6 @@ protected:
     static bool ChangesListHasFocus();
     static bool WatcherListHasFocus();
     std::vector<CItem*> GetAllSelected();
-    const SnapshotGrowthResult& GetSnapshotGrowthResult() const { return m_snapshotGrowthResult; }
     void InvalidateSelectionCache();
     static CTreeListControl* GetFocusControl();
     void UpdateAllViews(CView* pSender, VIEW_HINT hint = HINT_NULL, CItem* pHint = nullptr);
@@ -170,7 +169,6 @@ protected:
     LOGICAL_FOCUS m_cachedFocus{}; 
     std::vector<CItem*> m_cachedSelection;
     bool m_selectionCacheValid = false;
-    SnapshotGrowthResult m_snapshotGrowthResult;
 
     bool m_showFreeSpace; // Whether to show the <Free Space> item
     bool m_showUnknown;   // Whether to show the <Unknown> item

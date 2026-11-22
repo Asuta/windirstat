@@ -28,16 +28,28 @@ public:
     ~CFileChangeControl() override { m_singleton = nullptr; }
     bool GetAscendingDefault(int column) override;
     static CFileChangeControl* Get() { return m_singleton; }
-    CItemChange* GetRootItem() const { return m_rootItem; }
+    CItemChange* GetRootItem() const { return m_rootItem.get(); }
+    bool IsSummarySelected() const { return IsItemSelected(m_rootItem.get()); }
+    bool HasChanges() const { return m_changeCount != 0; }
+    std::wstring GetAllChangePaths() const;
     void SetChanges(const SnapshotGrowthResult& result);
     void ClearChanges();
-    bool HasChanges() const { return m_hasChanges; }
+    void PrepareDeletionRefresh(const std::vector<CItem*>& roots);
+    void FinishDeletionRefresh(const std::vector<CItem*>& roots);
     void AfterDeleteAllItems() override;
 
 protected:
     static CFileChangeControl* m_singleton;
-    CItemChange* m_rootItem = nullptr;
-    bool m_hasChanges = false;
+    std::unique_ptr<CItemChange> m_rootItem;
+    size_t m_changeCount = 0;
+
+private:
+    std::unordered_map<const CItem*, CItemChange*> m_itemsByScanItem;
+    std::map<std::wstring, CItemChange*> m_unlinkedItems;
+
+    bool HasUnlinkedChangesUnder(const std::wstring& path) const;
+
+    void RemoveChanges(std::unordered_set<CItemChange*>& removed);
 
     DECLARE_MESSAGE_MAP()
 };

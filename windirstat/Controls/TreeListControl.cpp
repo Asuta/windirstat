@@ -172,7 +172,7 @@ void CTreeListItem::SetVisible(CTreeListControl* control, const bool visible)
     if (visible)
     {
         ASSERT(!IsVisible());
-        const unsigned char indent = GetParent() == nullptr ? 0 : GetParent()->GetIndent() + 1;
+        const int indent = GetParent() == nullptr ? 0 : GetParent()->GetIndent() + 1;
         m_visualInfo = std::make_unique<VISIBLEINFO>(indent);
         m_visualInfo->control = control;
     }
@@ -183,16 +183,10 @@ void CTreeListItem::SetVisible(CTreeListControl* control, const bool visible)
     }
 }
 
-unsigned char CTreeListItem::GetIndent() const
+int CTreeListItem::GetIndent() const
 {
     ASSERT(IsVisible());
     return m_visualInfo->indent;
-}
-
-void CTreeListItem::SetIndent(const unsigned char indent) const
-{
-    ASSERT(IsVisible());
-    m_visualInfo->indent = indent;
 }
 
 CRect CTreeListItem::GetPlusMinusRect() const
@@ -437,21 +431,12 @@ void CTreeListControl::DrawNode(CDC* pDC, CRect& rcRest, CRect& rcPlusMinus, con
         if (count <= 1) return true;
 
         const auto& sorting = GetSorting();
-        const int sub1 = ColumnToSubItem(sorting.column1);
-        const int sub2 = ColumnToSubItem(sorting.column2);
 
         // Check if any sibling comes after this node in sort order
         for (const int k : std::views::iota(0, count))
         {
             const auto* sibling = parent->GetTreeListChild(k);
-            if (sibling == node) continue;
-
-            int compareResult = sibling->Compare(node, sub1);
-            const bool use2 = (compareResult == 0);
-            if (use2) compareResult = sibling->Compare(node, sub2);
-
-            if (const bool asc = use2 ? sorting.ascending2 : sorting.ascending1;
-                (asc && compareResult > 0) || (!asc && compareResult < 0)) return false;
+            if (sibling != node && sibling->CompareSort(node, sorting) > 0) return false;
         }
         return true;
     };

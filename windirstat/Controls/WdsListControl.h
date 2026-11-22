@@ -58,7 +58,7 @@ public:
 
     // Comparison methods for sorting
     virtual int Compare(const CWdsListItem* other, int subitem) const = 0;
-    int CompareSort(const CWdsListItem* other, const SSorting& sorting) const;
+    virtual int CompareSort(const CWdsListItem* other, const SSorting& sorting) const;
 
     // Return value is true, if the item draws itself.
     // width != NULL -> only determine width, do not draw.
@@ -117,6 +117,7 @@ public:
     void RemoveExtendedStyle(DWORD exStyle);
     void InsertListItem(int i, const std::vector<CWdsListItem*>& items);
     void RemoveListItem(int i, int c = 1);
+    void RemoveListItems(const std::unordered_set<const CWdsListItem*>& items);
     void ClearList();
     
     // Shadow CListCtrl methods for Owner Data management.

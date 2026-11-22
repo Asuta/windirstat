@@ -983,6 +983,21 @@ void CWdsListControl::RemoveListItem(const int i, const int c)
     RedrawItems(i, itemCount - 1);
 }
 
+void CWdsListControl::RemoveListItems(const std::unordered_set<const CWdsListItem*>& items)
+{
+    SelectionPreserver preserve(this);
+    std::erase_if(m_items, [&](auto* item)
+    {
+        if (!items.contains(item)) return false;
+        m_itemMap.erase(item);
+        if (m_ownsItems) delete item;
+        return true;
+    });
+    for (const int i : std::views::iota(0, GetItemCount())) m_itemMap.at(m_items[i]) = i;
+    SetItemCountEx(GetItemCount(), LVSICF_NOINVALIDATEALL | LVSICF_NOSCROLL);
+    Invalidate();
+}
+
 void CWdsListControl::ClearList()
 {
     if (m_ownsItems)

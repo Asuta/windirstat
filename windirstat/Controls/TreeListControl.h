@@ -1,4 +1,4 @@
-// WinDirStat - Directory Statistics
+﻿// WinDirStat - Directory Statistics
 // Copyright © WinDirStat Team
 //
 // This program is free software: you can redistribute it and/or modify
@@ -46,10 +46,10 @@ class CTreeListItem : public CWdsListItem
         CSmallRect rcTitle{}; // Coordinates of the label, relative to the upper left corner of the item.
         CTreeListControl* control = nullptr;
         HICON icon = nullptr;  // -1 as long as not needed, >= 0: valid index in IconHandler.
-        unsigned char indent; // 0 for the root item, 1 for its children, and so on.
+        int indent; // 0 for the root item, 1 for its children, and so on.
         bool isExpanded = false; // Whether item is expanded.
 
-        VISIBLEINFO(const unsigned char iIndent) : indent(iIndent) {}
+        VISIBLEINFO(const int iIndent) : indent(iIndent) {}
     };
 
 public:
@@ -74,8 +74,7 @@ public:
     void SetExpanded(bool expanded = true) const;
     bool IsVisible() const { return m_visualInfo.get() != nullptr; }
     void SetVisible(CTreeListControl * control, bool visible = true);
-    unsigned char GetIndent() const;
-    void SetIndent(unsigned char indent) const;
+    int GetIndent() const;
     CRect GetPlusMinusRect() const;
     void SetPlusMinusRect(const CRect& rc) const;
     CRect GetTitleRect() const;

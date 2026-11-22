@@ -35,11 +35,13 @@ class CItemChange final : public CTreeListItem
 {
     static constexpr size_t CachedTextCount = COL_ITEMCHANGE_FOLDERS_DELTA + 1;
 
-    std::shared_mutex m_protect;
-    std::vector<CItemChange*> m_children;
+    std::vector<std::unique_ptr<CItemChange>> m_children;
     std::optional<SnapshotGrowthEntry> m_entry;
     std::array<std::wstring, CachedTextCount> m_cachedText;
     std::wstring m_previousSnapshotLabel;
+    size_t m_changeCount = 0;
+    size_t m_resultIndex = 0;
+    HICON m_shellIcon = nullptr;
 
 public:
     CItemChange(const CItemChange&) = delete;
@@ -47,19 +49,21 @@ public:
     CItemChange& operator=(const CItemChange&) = delete;
     CItemChange& operator=(CItemChange&&) = delete;
     CItemChange() = default;
-    explicit CItemChange(const SnapshotGrowthEntry& entry);
-    ~CItemChange() override;
+    CItemChange(const SnapshotGrowthEntry& entry, size_t resultIndex);
 
     bool DrawSubItem(int subitem, CDC* pdc, CRect rc, UINT state, int* width, int* focusLeft) override;
     std::wstring GetText(int subitem) const override;
     int CompareSibling(const CTreeListItem* tlib, int subitem) const override;
+    int CompareSort(const CWdsListItem* other, const SSorting& sorting) const override;
     int GetTreeListChildCount() const override;
     CTreeListItem* GetTreeListChild(int i) const override;
     HICON GetIcon() override;
     CItem* GetLinkedItem() noexcept override { return m_entry.has_value() ? m_entry->currentItem : nullptr; }
 
-    void AddChangeItemChild(CItemChange* child);
-    void RemoveChangeItemChild(CItemChange* child);
-    void ReserveChangeItemChildren(size_t count);
-    void SetPreviousSnapshotLabel(const std::wstring& label) { m_previousSnapshotLabel = label; }
+    const std::wstring& GetChangePath() const { return m_entry->path; }
+    void AddChangeItemChild(std::unique_ptr<CItemChange> child);
+    void RemoveChangeItemChildren(const std::unordered_set<CItemChange*>& removed);
+    void SetLinkedItem(CItem* item) noexcept { m_entry->currentItem = item; }
+    void SetChangeCount(size_t count) noexcept { m_changeCount = count; }
+    void SetSnapshotInfo(const std::wstring& label, size_t changeCount);
 };

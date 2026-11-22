@@ -17,7 +17,6 @@
 
 #include "pch.h"
 #include "ItemChange.h"
-#include "FileChangeControl.h"
 
 namespace
 {
@@ -39,7 +38,7 @@ namespace
     }
 }
 
-CItemChange::CItemChange(const SnapshotGrowthEntry& entry) : m_entry(entry)
+CItemChange::CItemChange(const SnapshotGrowthEntry& entry, const size_t resultIndex) : m_entry(entry), m_resultIndex(resultIndex)
 {
     m_cachedText[COL_ITEMCHANGE_NAME] = m_entry->path;
     m_cachedText[COL_ITEMCHANGE_DELTA] = FormatSignedBytes(m_entry->deltaSizePhysical);
@@ -47,14 +46,6 @@ CItemChange::CItemChange(const SnapshotGrowthEntry& entry) : m_entry(entry)
     m_cachedText[COL_ITEMCHANGE_PREVIOUS_SIZE] = FormatBytes(m_entry->previousSizePhysical);
     m_cachedText[COL_ITEMCHANGE_FILES_DELTA] = FormatSignedCountValue(m_entry->deltaFiles);
     m_cachedText[COL_ITEMCHANGE_FOLDERS_DELTA] = FormatSignedCountValue(m_entry->deltaFolders);
-}
-
-CItemChange::~CItemChange()
-{
-    for (const auto& child : m_children)
-    {
-        delete child;
-    }
 }
 
 bool CItemChange::DrawSubItem(const int subitem, CDC* pdc, const CRect rc, const UINT state, int* width, int* focusLeft)
@@ -69,7 +60,7 @@ std::wstring CItemChange::GetText(const int subitem) const
         if (subitem != COL_ITEMCHANGE_NAME) return {};
 
         std::wstring text = Localization::Lookup(IDS_CHANGES);
-        if (!m_previousSnapshotLabel.empty()) text += L" (" + m_previousSnapshotLabel + L", " + FormatCount(m_children.size()) + L")";
+        if (!m_previousSnapshotLabel.empty()) text += L" (" + m_previousSnapshotLabel + L", " + FormatCount(m_changeCount) + L")";
         return text;
     }
 
@@ -102,6 +93,31 @@ int CItemChange::CompareSibling(const CTreeListItem* tlib, const int subitem) co
     }
 }
 
+int CItemChange::CompareSort(const CWdsListItem* other, const SSorting& sorting) const
+{
+    const auto* left = this;
+    const auto* right = static_cast<const CItemChange*>(other);
+    if (left == right) return 0;
+
+    if (left->GetParent() != right->GetParent())
+    {
+        // Sort branches by their sibling roots and keep ancestors before their descendants.
+        while (left->GetIndent() > right->GetIndent()) left = static_cast<const CItemChange*>(left->GetParent());
+        if (left == right) return 1;
+        while (right->GetIndent() > left->GetIndent()) right = static_cast<const CItemChange*>(right->GetParent());
+        if (left == right) return -1;
+
+        while (left->GetParent() != right->GetParent())
+        {
+            left = static_cast<const CItemChange*>(left->GetParent());
+            right = static_cast<const CItemChange*>(right->GetParent());
+        }
+    }
+
+    if (const int order = left->CWdsListItem::CompareSort(right, sorting); order != 0) return order;
+    return usignum(left->m_resultIndex, right->m_resultIndex);
+}
+
 int CItemChange::GetTreeListChildCount() const
 {
     return static_cast<int>(m_children.size());
@@ -109,50 +125,38 @@ int CItemChange::GetTreeListChildCount() const
 
 CTreeListItem* CItemChange::GetTreeListChild(const int i) const
 {
-    return m_children[i];
+    return m_children[i].get();
 }
 
 HICON CItemChange::GetIcon()
 {
     if (m_visualInfo == nullptr) return nullptr;
-    if (m_visualInfo->icon != nullptr) return m_visualInfo->icon;
+    if (!m_entry.has_value() || m_entry->currentItem == nullptr) return GetIconHandler()->GetSearchImage();
 
-    if (!m_entry.has_value() || m_entry->currentItem == nullptr)
+    if (m_visualInfo->icon == nullptr)
     {
-        m_visualInfo->icon = GetIconHandler()->GetSearchImage();
-        return m_visualInfo->icon;
+        // The lookup can outlive the visible row when a branch is collapsed and reopened.
+        GetIconHandler()->DoAsyncShellInfoLookup(std::make_tuple(this, m_visualInfo->control,
+            m_entry->currentItem->GetPath(), m_entry->currentItem->GetAttributes(), &m_shellIcon, nullptr));
+        m_visualInfo->icon = m_shellIcon;
     }
-
-    CDirStatApp::Get()->GetIconHandler()->DoAsyncShellInfoLookup(std::make_tuple(this,
-        m_visualInfo->control, m_entry->currentItem->GetPath(), m_entry->currentItem->GetAttributes(), &m_visualInfo->icon, nullptr));
-    return nullptr;
+    return m_shellIcon;
 }
 
-void CItemChange::AddChangeItemChild(CItemChange* child)
+void CItemChange::AddChangeItemChild(std::unique_ptr<CItemChange> child)
 {
     child->SetParent(this);
-
-    std::scoped_lock guard(m_protect);
-    m_children.push_back(child);
-
-    if (IsVisible() && IsExpanded()) CFileChangeControl::Get()->OnChildAdded(this, child);
+    m_children.push_back(std::move(child));
 }
 
-void CItemChange::ReserveChangeItemChildren(const size_t count)
+void CItemChange::RemoveChangeItemChildren(const std::unordered_set<CItemChange*>& removed)
 {
-    std::scoped_lock guard(m_protect);
-    m_children.reserve(count);
+    std::erase_if(m_children, [&](const auto& child) { return removed.contains(child.get()); });
+    if (IsVisible() && m_children.empty()) SetExpanded(false);
 }
 
-void CItemChange::RemoveChangeItemChild(CItemChange* child)
+void CItemChange::SetSnapshotInfo(const std::wstring& label, const size_t changeCount)
 {
-    if (IsVisible()) CFileChangeControl::Get()->OnChildRemoved(this, child);
-
-    std::scoped_lock guard(m_protect);
-    if (const auto it = std::ranges::find(m_children, child); it != m_children.end())
-    {
-        m_children.erase(it);
-    }
-
-    delete child;
+    m_previousSnapshotLabel = label;
+    m_changeCount = changeCount;
 }

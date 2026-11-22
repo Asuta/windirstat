@@ -73,6 +73,7 @@ void CDirStatDoc::DeleteContents()
     if (CFileDupeControl::Get() != nullptr) CFileDupeControl::Get()->DeleteAllItems();
     if (CFileSearchControl::Get() != nullptr) CFileSearchControl::Get()->DeleteAllItems();
     if (CFileWatcherControl::Get() != nullptr) CFileWatcherControl::Get()->DeleteAllItems();
+    if (CFileChangeControl::Get() != nullptr) CFileChangeControl::Get()->ClearChanges();
 
     // Cleanup structures
     delete m_rootItem;
@@ -93,8 +94,6 @@ BOOL CDirStatDoc::OnNewDocument()
 
 BOOL CDirStatDoc::OnOpenDocument(LPCWSTR lpszPathName)
 {
-    m_snapshotGrowthResult = {};
-    if (CFileChangeControl::Get() != nullptr) CFileChangeControl::Get()->ClearChanges();
     CMainFrame::Get()->GetFileTabbedView()->SetChangesTabVisibility(true);
 
     // Temporarily minimize extra views
@@ -163,8 +162,6 @@ BOOL CDirStatDoc::OnOpenDocument(LPCWSTR lpszPathName)
 
 BOOL CDirStatDoc::OnOpenDocument(CItem* newroot)
 {
-    m_snapshotGrowthResult = {};
-    if (CFileChangeControl::Get() != nullptr) CFileChangeControl::Get()->ClearChanges();
     CMainFrame::Get()->GetFileTabbedView()->SetChangesTabVisibility(true);
 
     CMainFrame::Get()->MinimizeTreeMapView();
@@ -594,7 +591,7 @@ void CDirStatDoc::DeletePhysicalItems(const std::vector<CItem*>& items, const bo
     // Refresh the items and recycler directories
     std::vector<CItem*> itemsToRefresh = items;
     itemsToRefresh.insert(itemsToRefresh.end(), recyclers.begin(), recyclers.end());
-    RefreshItem(itemsToRefresh);
+    Get()->StartScanningEngine(std::move(itemsToRefresh), true);
 }
 
 void CDirStatDoc::SetZoomItem(CItem* item)
@@ -858,8 +855,12 @@ std::vector<CItem*> CDirStatDoc::GetAllSelected()
     auto selection = GetFocusControl()->GetAllSelected<CItem>();
 
     // Expand any visual items if the direct item fetch did not work
+    const auto* changes = CFileChangeControl::Get();
     if (selection.empty()) for (const auto item : GetFocusControl()->GetAllSelected<CTreeListItem>(true))
     {
+        // Only the synthetic Changes root represents its children as a selection.
+        if (ChangesListHasFocus() && changes != nullptr && item != changes->GetRootItem()) continue;
+
         // If item has no direct link but has children, expand to children
         if (item->GetLinkedItem()) continue;
         
@@ -887,6 +888,15 @@ void CDirStatDoc::InvalidateSelectionCache()
 
 void CDirStatDoc::OnUpdateCentralHandler(CCmdUI* pCmdUI)
 {
+    if (pCmdUI->m_nID == ID_EDIT_COPY_CLIPBOARD && ChangesListHasFocus())
+    {
+        if (const auto* changes = CFileChangeControl::Get(); changes != nullptr && changes->IsSummarySelected())
+        {
+            pCmdUI->Enable(changes->HasChanges());
+            return;
+        }
+    }
+
     struct commandFilter
     {
         bool allowNone = false; // allow display when nothing is selected
@@ -1157,7 +1167,7 @@ void CDirStatDoc::OnLoadResults()
 
 void CDirStatDoc::OnCompareResults()
 {
-    if (!HasRootItem()) return;
+    if (!IsRootDone() || IsScanRunning()) return;
 
     const std::wstring fileSelectString = std::format(L"{} (*.csv)|*.csv|{} (*.*)|*.*||",
         Localization::Lookup(IDS_CSV_FILES), Localization::Lookup(IDS_ALL_FILES));
@@ -1191,7 +1201,7 @@ void CDirStatDoc::OnCompareResults()
         return;
     }
 
-    m_snapshotGrowthResult = std::move(resultsCsvCompare.result);
+    CFileChangeControl::Get()->SetChanges(resultsCsvCompare.result);
     CMainFrame::Get()->GetFileTabbedView()->SetChangesTabVisibility(true);
     CMainFrame::Get()->GetFileTabbedView()->SetActiveChangeView();
     UpdateAllViews(nullptr);
@@ -1199,6 +1209,15 @@ void CDirStatDoc::OnCompareResults()
 
 void CDirStatDoc::OnEditCopy()
 {
+    if (ChangesListHasFocus())
+    {
+        if (const auto* changes = CFileChangeControl::Get(); changes != nullptr && changes->IsSummarySelected())
+        {
+            CMainFrame::Get()->CopyToClipboard(changes->GetAllChangePaths());
+            return;
+        }
+    }
+
     // create concatenated paths
     std::wstring paths;
     for (const auto & item : GetAllSelected())
@@ -1824,7 +1843,7 @@ void CDirStatDoc::OnContextMenuExplore(UINT nID)
     contextMenu->InvokeCommand(reinterpret_cast<LPCMINVOKECOMMANDINFO>(&info));
 }
 
-void CDirStatDoc::StartScanningEngine(std::vector<CItem*> items)
+void CDirStatDoc::StartScanningEngine(std::vector<CItem*> items, const bool deletionRefresh)
 {
     // Stop any previous executions
     CWaitCursor wc;
@@ -1860,7 +1879,15 @@ void CDirStatDoc::StartScanningEngine(std::vector<CItem*> items)
         items = items.at(0)->GetChildren();
     }
 
+    if (auto* changes = CFileChangeControl::Get(); changes != nullptr)
+    {
+        // A deletion refresh retains the comparison, but scan nodes in its scope can be replaced.
+        if (deletionRefresh) changes->PrepareDeletionRefresh(items);
+        else changes->ClearChanges();
+    }
+
     // Remove items in UI thread so we do not conflict with the timer updates
+    InvalidateSelectionCache();
     const auto selectedItems = GetAllSelected();
     using VisualInfo = struct { int scrollPosition; bool wasExpanded; bool isSelected; };
     std::unordered_map<CItem*, VisualInfo> visualInfo;
@@ -1921,7 +1948,7 @@ void CDirStatDoc::StartScanningEngine(std::vector<CItem*> items)
 
     // Start a thread so we do not hang the message loop during inserts
     // Lambda captures assume document exists for duration of thread
-    m_thread.emplace([this,items, visualInfo] () mutable
+    m_thread.emplace([this, items, visualInfo, deletionRefresh] () mutable
     {
         // Add items to processing queue
         for (const auto & item : items)
@@ -2050,8 +2077,7 @@ void CDirStatDoc::StartScanningEngine(std::vector<CItem*> items)
         // Invoke a UI thread to do updates
         CMainFrame::Get()->InvokeInMessageThread([&]
         {
-            m_snapshotGrowthResult = {};
-            if (CFileChangeControl::Get() != nullptr) CFileChangeControl::Get()->ClearChanges();
+            if (deletionRefresh && CFileChangeControl::Get() != nullptr) CFileChangeControl::Get()->FinishDeletionRefresh(items);
             CMainFrame::Get()->GetFileTabbedView()->SetChangesTabVisibility(true);
 
             CMainFrame::Get()->LockWindowUpdate();
